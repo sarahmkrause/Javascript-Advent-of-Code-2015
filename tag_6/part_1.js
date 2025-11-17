@@ -21,10 +21,24 @@ function pad_32bit(num, isHex){
         prefix = "0x";
         padded = num.toString(16);
     }
-    while(padded.length <= size){
+    while(padded.length < size){
         padded = "0" + padded;
     }
     return prefix + padded;
+}
+
+function bitshift_left(num, shift){
+    if(shift == 32){
+        return (num << 31 << 1) >>> 0;
+    }
+    return (num << shift) >>> 0;
+}
+
+function bitshift_right(num, shift){
+    if(shift == 32){
+        return num >>> 31 >>> 1;
+    }
+    return num >>> shift;
 }
 
 function sanitize_cmd(cmd){
@@ -42,7 +56,7 @@ function sanitize_cmd(cmd){
         coord_end = cmd[4].split(",");
         mode = Number(cmd[1] == "on");
     }
-    console.log("(" + Number(coord_start[0]) + "," + Number(coord_start[1]) + ")\n(" + Number(coord_end[0]) + "," + Number(coord_end[1]) + ")");
+    //console.log("(" + Number(coord_start[0]) + "," + Number(coord_start[1]) + ")\n(" + Number(coord_end[0]) + "," + Number(coord_end[1]) + ")");
     return [[[Number(coord_start[0]), Number(coord_start[1])],[Number(coord_end[0]), Number(coord_end[1])]], mode]
 }
 
@@ -87,8 +101,10 @@ function add_new_column(column, size, turned_on){
 
 function convertToBinary(range, size, chunk_size){
     let chunks = [];
-    let first_chunk = Math.floor(range[0][0]/chunk_size);
-    let last_chunk = Math.floor(range[1][0]/chunk_size);
+    let first_chunk = Math.floor(range[0][0] / chunk_size);
+    let last_chunk = Math.floor(range[1][0] / chunk_size);
+    let first_chunk_index = range[0][0] % chunk_size;
+    let last_chunk_index = chunk_size - ((range[1][0] % chunk_size) + 1);
     //console.log("First Chunk: " + first_chunk);
     //console.log("Last Chunk: " + last_chunk);
     
@@ -98,32 +114,43 @@ function convertToBinary(range, size, chunk_size){
 
     for(let i=0; i<size; i++){
         if(i == first_chunk && i == last_chunk){
-            chunks[i] = ((full_chunk << range[0][0])) >>> 0 & (full_chunk >>> range[1][0]);
+            chunks[i] = bitshift_right(full_chunk, first_chunk_index) & bitshift_left(full_chunk, last_chunk_index);
+            //console.log(">> <<");
         }
         else if(i == first_chunk){
-            chunks[i] = (full_chunk << range[0][0]) >>> 0; //>>> 0 verhidert dass negativ zahlen entstehen
+            chunks[i] = bitshift_right(full_chunk, first_chunk_index);
+            //console.log("<<");
         }
         else if(i == last_chunk){
-            chunks[i] = full_chunk >>> range[1][0];
+            chunks[i] = bitshift_left(full_chunk, last_chunk_index);
+            //console.log(">>");
         }
         else if(i > first_chunk && i < last_chunk){
             chunks[i] = full_chunk;
+            //console.log("full");
         }
         else{
             chunks[i] = 0x00000000;
+            //console.log("empty");
         }
-        console.log("Chunk: " + pad_32bit(chunks[i], false));
+        //console.log("Chunk cmd: " + pad_32bit(chunks[i], false));
     }
     return chunks;
 }
 
 //Input: [[x1,y1],[x2,y2]]
-function operate_lights(range, mode, size, chunk_size, turned_on){
+function operate_lights(range, mode, field_size, chunk_size, turned_on){
     let column_index;
+
+    let size = Math.ceil(field_size/chunk_size);
+    let mask = 0xFFFFFFFF;
+    if(field_size % chunk_size != 0){
+        mask = bitshift_left(mask, chunk_size - (field_size%chunk_size));
+    }
 
     let chunks = convertToBinary(range, size, chunk_size);
 
-    for(let i=range[0][1]; i<range[1][1]; i++){
+    for(let i=range[0][1]; i<range[1][1]+1; i++){
         column_index = findIndexOfColumn(i, turned_on);
         if(column_index == -1){
             turned_on, column_index = add_new_column(i, size, turned_on);
@@ -131,21 +158,38 @@ function operate_lights(range, mode, size, chunk_size, turned_on){
             //console.log("Array: ", turned_on[column_index][1].join());
         }
 
+        //console.log("Spalte: " + column_index);
+
         //operation
 
         for(let j=0; j<size; j++){
-            //console.log("Chunk: " + chunks[j]);
+            //console.log("Old Chunk: " + pad_32bit(turned_on[column_index][1][j], false));
             if(mode == 0){
-                chunks[j] = ~chunks[j];
-                turned_on[column_index][1][j] = chunks[j] & turned_on[column_index][1][j];
+                turned_on[column_index][1][j] = (~chunks[j] & turned_on[column_index][1][j]) >>> 0;
+                //console.log("turn off");
             }
             else if(mode == 1){
-                turned_on[column_index][1][j] = chunks[j] | turned_on[column_index][1][j];
+                turned_on[column_index][1][j] = (chunks[j] | turned_on[column_index][1][j]) >>> 0;
+                //console.log("turn on");
             }
             else if(mode == 2){
-                turned_on[column_index][1][j] = chunks[j] ^ turned_on[column_index][1][j];
+                turned_on[column_index][1][j] = (chunks[j] ^ turned_on[column_index][1][j]) >>> 0;
+                //console.log("toggle");
             }
-            //console.log("New Value: " + turned_on[column_index][1][j]);
+            //console.log("New Chunk: " + pad_32bit(turned_on[column_index][1][j], false));
+        }
+        turned_on[column_index][1][size-1] = (mask & turned_on[column_index][1][size-1]) >>> 0;
+
+        let empty = true;
+        for(let j=0; j<size; j++){
+            //console.log(turned_on[column_index][1][j]);
+            if(turned_on[column_index][1][j] != 0 && empty){
+                empty = false;
+            }
+        }
+        //console.log(empty.toString());
+        if(empty){
+            turned_on.splice(column_index, 1);
         }
     }
 
@@ -154,8 +198,15 @@ function operate_lights(range, mode, size, chunk_size, turned_on){
 
 function print_turned_on(turned_on, isHex){
     let output = "================\n";
+    output += "Length: ";
+    output += turned_on.length;
+    output += "\n";
     for(let i=0; i<turned_on.length; i++){
-        output += "[ ";
+        output += "[ (";
+        output += turned_on[i][0];
+        output += " - ";
+        output += turned_on[i][1].length;
+        output += ") ";
         for(let j=0; j<turned_on[i][1].length-1; j++){
             output += pad_32bit(turned_on[i][1][j], isHex);
             output += ", ";
@@ -167,39 +218,31 @@ function print_turned_on(turned_on, isHex){
     console.log(output);
 }
 
-function print_lights(lights){
-    let log_lights = "";
-
-    for(let i=0; i<lights.length+2; i++){
-        log_lights += "-";
+function count_chunk(chunk){
+    //console.log(chunk);
+    let mask = 0b1;
+    let result = 0;
+    while(chunk > 0){
+        result += (mask & chunk) >>> 0;
+        chunk = bitshift_right(chunk, 1);
     }
-    log_lights += "\n";
-
-    for(let i=0; i<lights.length; i++){
-        log_lights += "|";
-        for(let j=0; j<lights.length; j++){
-            if(lights[i][j]){
-                log_lights += "█";
-            }
-            else{
-                log_lights += " ";
-            }
-        }
-        log_lights += "|\n";
-    }
-
-    for(let i=0; i<lights.length+2; i++){
-        log_lights += "-";
-    }
-    log_lights += "\n";
-
-    console.log(log_lights);
+    return result;
 }
 
+function count_lights(turned_on){
+    let result = 0;
+    for(let i=0; i<turned_on.length; i++){
+        //console.log(turned_on[i][1].length);
+        for(let j=0; j<turned_on[i][1].length; j++){
+            result += count_chunk(turned_on[i][1][j]);
+        }
+    }
+    return result;
+}
 
-let input = read_input("./tag_6/example.txt");
+let input = read_input("./tag_6/input.txt");
 
-const size = 64;
+const size = 1000;
 const chunk_size = 32; //bit operation nutzen 32 bit integer
 
 //new idea
@@ -207,10 +250,11 @@ let turned_on = [];
 
 for(let i=0; i<input.length; i++){
     let cmd = sanitize_cmd(input[i]);
-    console.log(cmd);
-    turned_on = operate_lights(cmd[0], cmd[1], size/chunk_size, chunk_size, turned_on);
-    //console.log(turned_on);
-    print_turned_on(turned_on, false);
+    //console.log(cmd);
+    turned_on = operate_lights(cmd[0], cmd[1], size, chunk_size, turned_on);
+    //print_turned_on(turned_on, false);
 }
 
-//console.log(convertToBinary([[8,0],[48,0]], size/chunk_size, chunk_size))
+//print_turned_on(turned_on, false);
+
+console.log(count_lights(turned_on));

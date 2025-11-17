@@ -1,3 +1,1 @@
-turn on 0,0 through 64,64
-toggle 0,0 through 64,0
-turn off 31,31 through 33,33
+toggle 0,0 through 999,999
