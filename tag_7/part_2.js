@@ -145,7 +145,13 @@ let wire = "a";
 
 for(let i=0; i<input.length; i++){
     let cmd = sanitize_cmd(input[i]);
+    //console.log(cmd);
     variables[cmd[1]] = cmd[0];
 }
 //console.log(variables);
-console.log(wire + ": " + eval_wire(wire, variables));
+//console.log(variables);
+//console.log(variables["b"]);
+variables["b"] = ["ASSIGN", [eval_wire("a", structuredClone(variables))]];
+//console.log(variables["b"]);
+//console.log(variables);
+console.log(eval_wire("a", variables));
