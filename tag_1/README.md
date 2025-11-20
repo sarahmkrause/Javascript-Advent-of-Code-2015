@@ -1,5 +1,4 @@
 ## Aufgabe:
-`
 --- Day 1: Not Quite Lisp ---
 
 Santa was hoping for a white Christmas, but his weather machine's "snow" function is powered by stars, and he's fresh out! To save Christmas, he needs you to collect fifty stars by December 25th.
@@ -34,5 +33,3 @@ For example:
     ()()) causes him to enter the basement at character position 5.
 
 What is the position of the character that causes Santa to first enter the basement?
-
-`
